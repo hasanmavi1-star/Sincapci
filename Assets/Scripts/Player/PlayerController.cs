@@ -28,6 +28,10 @@ namespace SquirrelGame.Player
         [Tooltip("Local position of hands during jump-hold animation")]
         [SerializeField] private Vector3 _handAnchorLocal = new Vector3(0f, 0.61f, 0.06f);
 
+        [Header("Idle Camera Facing")]
+        [Tooltip("Idle'da kameraya dönüş açısı (derece). 0 = yan, 90 = tam kameraya dönük.")]
+        [SerializeField] private float _idleCameraTurnAngle = 20f;
+
         [Header("References")]
         [SerializeField] private PlayerAnimator _animator;
         [SerializeField] private AcornCompanion _companion;
@@ -41,6 +45,17 @@ namespace SquirrelGame.Player
         private bool _jumpRequested;
         private bool _jumpHeld;
         private bool _canGlide;
+        private float _lastFacingSign = 1f;  // 1 = sağ (90°), -1 = sol (-90°)
+
+        // Sabit rotasyonlar — static readonly, hiç allocation yok
+        private static readonly Quaternion s_victoryRot   = Quaternion.Euler(0f, 180f, 0f);
+        private static readonly Quaternion s_facingRight  = Quaternion.Euler(0f,  90f, 0f);
+        private static readonly Quaternion s_facingLeft   = Quaternion.Euler(0f, -90f, 0f);
+
+        // Idle rotasyonlar: sadece _lastFacingSign veya _idleCameraTurnAngle değiştiğinde yeniden hesaplanır
+        private Quaternion _idleRotRight;
+        private Quaternion _idleRotLeft;
+
 
         // Hold timer
         private float _jumpHoldTimer;
@@ -58,6 +73,16 @@ namespace SquirrelGame.Player
             _controller = GetComponent<CharacterController>();
             if (_animator == null) _animator = GetComponent<PlayerAnimator>();
             if (_animator == null) _animator = GetComponentInChildren<PlayerAnimator>();
+            RebuildIdleRotations();
+        }
+
+        /// <summary>
+        /// Idle dönüş açısı değiştiğinde çağrılır (Inspector veya runtime'da).
+        /// </summary>
+        private void RebuildIdleRotations()
+        {
+            _idleRotRight = Quaternion.Euler(0f,  90f + _idleCameraTurnAngle, 0f);
+            _idleRotLeft  = Quaternion.Euler(0f, -90f - _idleCameraTurnAngle, 0f);
         }
 
         public void SetCompanion(AcornCompanion companion)
@@ -286,18 +311,27 @@ namespace SquirrelGame.Player
             Vector3 finalMotion = (move + new Vector3(0f, _velocity.y, 0f)) * Time.deltaTime;
             _controller.Move(finalMotion);
 
-            Vector3 pos = transform.position;
-            if (Mathf.Abs(pos.z) > 0.001f)
+            // Z eksenini kilitle — 2D oyun, CharacterController bazen hafifçe kayabilir
+            if (Mathf.Abs(transform.position.z) > 0.001f)
             {
+                Vector3 pos = transform.position;
                 pos.z = 0f;
                 transform.position = pos;
             }
 
             if (Mathf.Abs(_horizontalInput) > 0.05f)
             {
-                float targetYaw = _horizontalInput > 0 ? 90f : -90f;
-                Quaternion targetRot = Quaternion.Euler(0f, targetYaw, 0f);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * _rotationSpeed);
+                float newFacingSign = _horizontalInput > 0 ? 1f : -1f;
+                if (newFacingSign != _lastFacingSign)
+                    _lastFacingSign = newFacingSign;
+
+                // Anlık snap — zero cost
+                transform.rotation = _lastFacingSign > 0 ? s_facingRight : s_facingLeft;
+            }
+            else if (_currentState == PlayerState.Idle)
+            {
+                // Idle: hafifçe kameraya dönük, anlık snap
+                transform.rotation = _lastFacingSign > 0 ? _idleRotRight : _idleRotLeft;
             }
 
             if (_animator != null)
@@ -319,8 +353,20 @@ namespace SquirrelGame.Player
                 _animator.SetGrounded(true);
                 _animator.TriggerVictory();
             }
+            // Kameraya tam dönüş LateUpdate'te Slerp ile sağlanır
+        }
 
-            transform.rotation = Quaternion.Euler(0f, 180f, 0f);
+        private void LateUpdate()
+        {
+            if (_currentState == PlayerState.Victory)
+            {
+                // Hedefe ulaşıldıysa çalışmayı durdur
+                float dot = Quaternion.Dot(transform.rotation, s_victoryRot);
+                if (dot < 0.9999f)
+                {
+                    transform.rotation = Quaternion.Slerp(transform.rotation, s_victoryRot, Time.deltaTime * 5f);
+                }
+            }
         }
 
         private void ChangeState(PlayerState newState)

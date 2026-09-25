@@ -2,10 +2,14 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
 using SquirrelGame.Player;
 using SquirrelGame.Companion;
 using SquirrelGame.Gameplay;
 using SquirrelGame.Camera;
+using SquirrelGame.Core;
+using SquirrelGame.UI;
 
 namespace SquirrelGame.Editor
 {
@@ -379,7 +383,7 @@ namespace SquirrelGame.Editor
             GameObject acornGo = (GameObject)PrefabUtility.InstantiatePrefab(companionPrefab, levelRoot.transform);
             acornGo.name = "Companion_Acorn";
             acornGo.transform.position = new Vector3(-2.2f, 1.3f, 0.2f);
-            acornGo.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
+            acornGo.transform.rotation = Quaternion.Euler(0f, 125f, 0f);
 
             var companionComp = acornGo.GetComponent<AcornCompanion>();
             if (playerCtrl != null && companionComp != null)
@@ -412,6 +416,16 @@ namespace SquirrelGame.Editor
                 eventSystemGo.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
 #endif
             }
+
+            // --- 8. GAME MANAGER ---
+            if (Object.FindAnyObjectByType<GameManager>() == null)
+            {
+                var gmGo = new GameObject("GameManager");
+                gmGo.AddComponent<GameManager>();
+            }
+
+            // --- 9. HUD CANVAS — R = Restart ipucu ---
+            BuildRestartHintUI();
 
             // Directional Light tuning
             var dirLight = GameObject.Find("Directional Light");
@@ -476,6 +490,52 @@ namespace SquirrelGame.Editor
                 }
             }
             return dict;
+        }
+
+        /// <summary>
+        /// Screen Space Overlay Canvas içinde sağ üst köşeye "R = Restart" metni oluşturur.
+        /// </summary>
+        private static void BuildRestartHintUI()
+        {
+            // Zaten varsa yeniden oluşturma
+            var existing = GameObject.Find("HUD_Canvas");
+            if (existing != null) return;
+
+            // --- Canvas ---
+            var canvasGo = new GameObject("HUD_Canvas");
+            var canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 10;
+
+            var scaler = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.matchWidthOrHeight = 0.5f;
+
+            canvasGo.AddComponent<GraphicRaycaster>();
+
+            // --- Text GameObject ---
+            var textGo = new GameObject("RestartHint_Text");
+            textGo.transform.SetParent(canvasGo.transform, false);
+
+            var label = textGo.AddComponent<TextMeshProUGUI>();
+            label.text      = "R  =  Yeniden Başlat";
+            label.fontSize  = 18f;
+            label.color     = new Color(1f, 1f, 1f, 0.72f);
+            label.fontStyle = FontStyles.Bold;
+            label.alignment = TextAlignmentOptions.TopRight;
+
+            // Sağ üst köşeye sabitle
+            var rt = textGo.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(1f, 1f);   // sağ üst
+            rt.anchorMax = new Vector2(1f, 1f);
+            rt.pivot     = new Vector2(1f, 1f);
+            rt.anchoredPosition = new Vector2(-20f, -16f);  // kenardan iç boşluk
+            rt.sizeDelta = new Vector2(300f, 40f);
+
+            textGo.AddComponent<RestartHintUI>();
+
+            Debug.Log("<b>[Sincapci]</b> HUD Canvas oluşturuldu: R = Restart ipucu sağ üste eklendi.");
         }
     }
 }

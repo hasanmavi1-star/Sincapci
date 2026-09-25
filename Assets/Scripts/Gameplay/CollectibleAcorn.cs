@@ -14,29 +14,34 @@ namespace SquirrelGame.Gameplay
         [Header("Effects")]
         [SerializeField] private GameObject _collectParticlePrefab;
 
-        private Vector3 _startPosition;
-        private bool _isCollected;
+        // Cached at Start to avoid repeated transform reads
+        private float _startY;
+        private float _startX;
+        private float _startZ;
+        private float _floatAngularSpeed; // pre-multiplied with 2π so Mathf.Sin stays cheap
 
         public static event Action OnAnyAcornCollected;
 
         private void Start()
         {
-            _startPosition = transform.position;
+            Vector3 pos = transform.position;
+            _startY = pos.y;
+            _startX = pos.x;
+            _startZ = pos.z;
         }
 
         private void Update()
         {
-            if (_isCollected) return;
+            // Rotate in-place (no allocation)
+            transform.Rotate(0f, _rotationSpeed * Time.deltaTime, 0f, Space.World);
 
-            transform.Rotate(Vector3.up, _rotationSpeed * Time.deltaTime, Space.World);
-            float newY = _startPosition.y + Mathf.Sin(Time.time * _floatFrequency) * _floatAmplitude;
-            transform.position = new Vector3(transform.position.x, newY, transform.position.z);
+            // Float — only Y changes, X/Z are cached constants → no transform.position read
+            float newY = _startY + Mathf.Sin(Time.time * _floatFrequency) * _floatAmplitude;
+            transform.position = new Vector3(_startX, newY, _startZ);
         }
 
         private void OnTriggerEnter(Collider other)
         {
-            if (_isCollected) return;
-
             var player = other.GetComponent<PlayerController>();
             if (player != null)
             {
@@ -46,7 +51,9 @@ namespace SquirrelGame.Gameplay
 
         private void Collect()
         {
-            _isCollected = true;
+            // Disable Update immediately — no more per-frame cost
+            enabled = false;
+
             OnAnyAcornCollected?.Invoke();
 
             if (_collectParticlePrefab != null)
@@ -54,22 +61,23 @@ namespace SquirrelGame.Gameplay
                 Instantiate(_collectParticlePrefab, transform.position, Quaternion.identity);
             }
 
-            // Visual feedback: shrink and destroy
             StartCoroutine(CollectAnimationRoutine());
         }
 
         private System.Collections.IEnumerator CollectAnimationRoutine()
         {
             float elapsed = 0f;
-            float duration = 0.25f;
+            const float duration = 0.25f;
+            const float invDuration = 1f / duration;
             Vector3 initScale = transform.localScale;
+            Vector3 risePerSec = new Vector3(0f, 2f, 0f);
 
             while (elapsed < duration)
             {
                 elapsed += Time.deltaTime;
-                float t = elapsed / duration;
-                transform.localScale = Vector3.Lerp(initScale, Vector3.zero, t);
-                transform.position += Vector3.up * (2f * Time.deltaTime);
+                float t = elapsed * invDuration;
+                transform.localScale = Vector3.LerpUnclamped(initScale, Vector3.zero, t);
+                transform.position += risePerSec * Time.deltaTime;
                 yield return null;
             }
 
